@@ -1,6 +1,37 @@
 let currentUser = null;
 let allTools = [];
 let currentCategory = 'all';
+let favorites = [];
+let history = [];
+
+// ============ THEME ============
+function loadTheme() {
+    const savedTheme = localStorage.getItem('alltools_theme');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark');
+        document.body.classList.remove('light');
+        document.getElementById('themeToggle').innerHTML = '<i class="fas fa-sun"></i>';
+    } else {
+        document.body.classList.add('light');
+        document.body.classList.remove('dark');
+        document.getElementById('themeToggle').innerHTML = '<i class="fas fa-moon"></i>';
+    }
+}
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+    const isDark = document.body.classList.contains('dark');
+    if (isDark) {
+        document.body.classList.remove('dark');
+        document.body.classList.add('light');
+        localStorage.setItem('alltools_theme', 'light');
+        document.getElementById('themeToggle').innerHTML = '<i class="fas fa-moon"></i>';
+    } else {
+        document.body.classList.remove('light');
+        document.body.classList.add('dark');
+        localStorage.setItem('alltools_theme', 'dark');
+        document.getElementById('themeToggle').innerHTML = '<i class="fas fa-sun"></i>';
+    }
+});
 
 // ============ LOGIN ============
 document.getElementById('loginBtn').addEventListener('click', async () => {
@@ -22,7 +53,11 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
             currentUser = username;
             document.getElementById('loginPage').style.display = 'none';
             document.getElementById('mainApp').style.display = 'block';
+            document.getElementById('currentUserDisplay').textContent = username;
+            loadTheme();
             loadTools();
+            loadFavorites();
+            loadHistory();
         } else {
             document.getElementById('loginError').textContent = data.message;
         }
@@ -31,7 +66,6 @@ document.getElementById('loginBtn').addEventListener('click', async () => {
     }
 });
 
-// Enter key for login
 document.getElementById('usernameInput').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') document.getElementById('loginBtn').click();
 });
@@ -51,6 +85,8 @@ async function loadTools() {
         const data = await response.json();
         if (data.status) {
             allTools = data.tools;
+            document.getElementById('totalTools').textContent = allTools.length;
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
             loadCategories();
             renderTools(allTools);
         }
@@ -114,6 +150,9 @@ function renderTools(tools) {
             <div class="tool-name">${tool.name}</div>
             <div class="tool-category">${tool.category}</div>
             <span class="tool-type ${tool.type.toLowerCase()}">${tool.type}</span>
+            <div class="favorite-star ${favorites.includes(tool.id) ? 'active' : ''}" onclick="event.stopPropagation();toggleFavorite(${tool.id})">
+                <i class="fas fa-star"></i>
+            </div>
         </div>
     `).join('');
 
@@ -121,7 +160,10 @@ function renderTools(tools) {
         card.addEventListener('click', () => {
             const id = parseInt(card.dataset.id);
             const tool = allTools.find(t => t.id === id);
-            if (tool) showToolModal(tool);
+            if (tool) {
+                showToolModal(tool);
+                addToHistory(tool);
+            }
         });
     });
 }
@@ -139,6 +181,116 @@ function getIcon(category) {
     return icons[category] || 'cog';
 }
 
+// ============ FAVORITES ============
+function loadFavorites() {
+    favorites = JSON.parse(localStorage.getItem('alltools_favorites') || '[]');
+}
+
+function saveFavorites() {
+    localStorage.setItem('alltools_favorites', JSON.stringify(favorites));
+}
+
+function toggleFavorite(toolId) {
+    if (favorites.includes(toolId)) {
+        favorites = favorites.filter(id => id !== toolId);
+    } else {
+        favorites.push(toolId);
+        showToast('Added to favorites! ⭐');
+    }
+    saveFavorites();
+    filterTools(); // Refresh display
+}
+
+function showFavorites() {
+    const favTools = allTools.filter(t => favorites.includes(t.id));
+    const list = document.getElementById('favoritesList');
+    
+    if (favTools.length === 0) {
+        list.innerHTML = '<p style="text-align:center;color:#999;">No favorites yet</p>';
+    } else {
+        list.innerHTML = favTools.map(t => `
+            <div class="favorite-item">
+                <div>
+                    <div class="tool-name">${t.name}</div>
+                    <div class="timestamp">${t.category}</div>
+                </div>
+                <button class="remove-btn" onclick="removeFavorite(${t.id})">Remove</button>
+            </div>
+        `).join('');
+    }
+    
+    document.getElementById('favoritesModal').style.display = 'flex';
+}
+
+function removeFavorite(toolId) {
+    favorites = favorites.filter(id => id !== toolId);
+    saveFavorites();
+    showFavorites();
+    filterTools();
+}
+
+// ============ HISTORY ============
+function loadHistory() {
+    history = JSON.parse(localStorage.getItem('alltools_history') || '[]');
+}
+
+function saveHistory() {
+    localStorage.setItem('alltools_history', JSON.stringify(history));
+}
+
+function addToHistory(tool) {
+    const existing = history.findIndex(h => h.id === tool.id);
+    if (existing !== -1) {
+        history.splice(existing, 1);
+    }
+    history.unshift({
+        id: tool.id,
+        name: tool.name,
+        category: tool.category,
+        timestamp: new Date().toISOString()
+    });
+    
+    if (history.length > 50) history.pop(); // Limit to 50
+    saveHistory();
+}
+
+function showHistory() {
+    const list = document.getElementById('historyList');
+    
+    if (history.length === 0) {
+        list.innerHTML = '<p style="text-align:center;color:#999;">No history yet</p>';
+    } else {
+        list.innerHTML = history.map(h => `
+            <div class="history-item">
+                <div>
+                    <div class="tool-name">${h.name}</div>
+                    <div class="timestamp">${new Date(h.timestamp).toLocaleString()} • ${h.category}</div>
+                </div>
+                <button class="remove-btn" onclick="removeHistory(${h.id})">Remove</button>
+            </div>
+        `).join('');
+    }
+    
+    document.getElementById('historyModal').style.display = 'flex';
+}
+
+function removeHistory(toolId) {
+    history = history.filter(h => h.id !== toolId);
+    saveHistory();
+    showHistory();
+}
+
+function clearHistory() {
+    if (confirm('Clear all history?')) {
+        history = [];
+        saveHistory();
+        showToast('History cleared!');
+        if (document.getElementById('historyModal').style.display === 'flex') {
+            showHistory();
+        }
+    }
+}
+
 // ============ TOOL MODAL ============
 function showToolModal(tool) {
     const modal = document.getElementById('toolModal');
@@ -148,6 +300,11 @@ function showToolModal(tool) {
         <p><strong>Category:</strong> ${tool.category}</p>
         <p><strong>Type:</strong> <span class="tool-type ${tool.type.toLowerCase()}">${tool.type}</span></p>
         <p><strong>Endpoint:</strong> <code>${tool.endpoint}</code></p>
+        <div style="margin:16px 0;">
+            <button onclick="toggleFavoriteFromModal(${tool.id})" class="btn-add-tool" style="background: ${favorites.includes(tool.id) ? '#ffd700' : '#667eea'};">
+                <i class="fas fa-star"></i> ${favorites.includes(tool.id) ? ' Remove from Favorites' : ' Add to Favorites'}
+            </button>
+        </div>
     `;
 
     if (tool.query && tool.queryExample) {
@@ -207,12 +364,11 @@ function showToolModal(tool) {
     });
 }
 
-// Close modal on outside click
-window.onclick = (event) => {
-    if (event.target.classList.contains('modal')) {
-        event.target.style.display = 'none';
-    }
-};
+function toggleFavoriteFromModal(toolId) {
+    toggleFavorite(toolId);
+    const tool = allTools.find(t => t.id === toolId);
+    if (tool) showToolModal(tool);
+}
 
 // ============ ADD TOOL ============
 document.getElementById('addToolBtn').addEventListener('click', () => {
@@ -245,14 +401,70 @@ document.getElementById('addToolForm').addEventListener('submit', async (e) => {
         const data = await response.json();
 
         if (data.status) {
-            alert('✅ Tool added successfully!');
+            showToast('✅ Tool added successfully!');
             document.getElementById('addToolModal').style.display = 'none';
             loadTools();
             document.getElementById('addToolForm').reset();
         } else {
-            alert('❌ ' + data.message);
+            showToast('❌ ' + data.message);
         }
     } catch (error) {
-        alert('❌ Connection error');
+        showToast('❌ Connection error');
     }
 });
+
+// ============ CLOSE MODALS ============
+window.onclick = (event) => {
+    if (event.target.classList.contains('modal')) {
+        event.target.style.display = 'none';
+    }
+};
+
+document.getElementById('closeHistoryModal').addEventListener('click', () => {
+    document.getElementById('historyModal').style.display = 'none';
+});
+
+document.getElementById('closeFavoritesModal').addEventListener('click', () => {
+    document.getElementById('favoritesModal').style.display = 'none';
+});
+
+// ============ TOAST ============
+function showToast(message) {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// ============ TOAST STYLES ============
+const style = document.createElement('style');
+style.textContent = `
+    .toast {
+        position: fixed;
+        bottom: 100px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #333;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 30px;
+        z-index: 9999;
+        font-size: 0.9em;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        transition: all 0.3s ease;
+        max-width: 90%;
+        text-align: center;
+    }
+`;
+document.head.appendChild(style);
+
+console.log('✅ All Tools AI loaded!');

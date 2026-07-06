@@ -16,6 +16,9 @@
             <input type="text" id="usernameInput" placeholder="Username" class="login-input">
             <button id="loginBtn" class="login-btn">Login</button>
             <div id="loginError" class="login-error"></div>
+            <div class="login-info">
+                <i class="fas fa-info-circle"></i> Username: admin
+            </div>
         </div>
     </div>
 
@@ -23,15 +26,43 @@
     <div id="mainApp" style="display: none;">
         <div class="container">
             <header>
-                <h1>✨ All Tools AI</h1>
-                <p>Transform your images with AI</p>
-                <button id="logoutBtn" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                <div class="header-left">
+                    <h1>✨ All Tools AI</h1>
+                    <p>Transform your images with AI</p>
+                </div>
+                <div class="header-right">
+                    <button id="themeToggle" class="theme-btn"><i class="fas fa-moon"></i></button>
+                    <button id="logoutBtn" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                </div>
             </header>
+
+            <!-- Stats Bar -->
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <i class="fas fa-tools"></i>
+                    <span id="totalTools">0</span> Tools
+                </div>
+                <div class="stat-item">
+                    <i class="fas fa-clock"></i>
+                    <span id="lastUpdate">Just now</span>
+                </div>
+                <div class="stat-item">
+                    <i class="fas fa-user"></i>
+                    <span id="currentUserDisplay">admin</span>
+                </div>
+            </div>
 
             <!-- Search -->
             <div class="search-bar">
                 <i class="fas fa-search"></i>
                 <input type="text" id="searchInput" placeholder="Search tools by name or category...">
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="quick-actions">
+                <button onclick="showFavorites()" class="quick-btn"><i class="fas fa-star"></i> Favorites</button>
+                <button onclick="showHistory()" class="quick-btn"><i class="fas fa-history"></i> History</button>
+                <button onclick="clearHistory()" class="quick-btn"><i class="fas fa-trash"></i> Clear History</button>
             </div>
 
             <!-- Categories -->
@@ -94,6 +125,28 @@
                         </div>
                         <button type="submit" class="btn-add-tool">Add Tool</button>
                     </form>
+                </div>
+            </div>
+
+            <!-- History Modal -->
+            <div class="modal" id="historyModal" style="display: none;">
+                <div class="modal-content">
+                    <span class="modal-close" id="closeHistoryModal">&times;</span>
+                    <h2><i class="fas fa-history"></i> History</h2>
+                    <div id="historyList" style="max-height:400px;overflow-y:auto;margin-top:16px;">
+                        <p style="text-align:center;color:#999;">No history yet</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Favorites Modal -->
+            <div class="modal" id="favoritesModal" style="display: none;">
+                <div class="modal-content">
+                    <span class="modal-close" id="closeFavoritesModal">&times;</span>
+                    <h2><i class="fas fa-star"></i> Favorites</h2>
+                    <div id="favoritesList" style="max-height:400px;overflow-y:auto;margin-top:16px;">
+                        <p style="text-align:center;color:#999;">No favorites yet</p>
+                    </div>
                 </div>
             </div>
 
