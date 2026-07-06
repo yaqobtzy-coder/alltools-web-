@@ -12,9 +12,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ============ SERVE FRONTEND ============
-app.use(express.static(path.join(__dirname, '../frontend')));
-
 // ============ DATA TOOLS ============
 let toolsData = {
     tools: [
@@ -198,9 +195,203 @@ app.get('/api/search', (req, res) => {
     res.json({ status: true, tools: filtered });
 });
 
-// ============ FALLBACK (SEMUA ROUTE SELAIN /API) ============
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/index.html'));
+// ============ SERVE HTML ============
+app.get('/', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>All Tools AI</title>
+            <style>
+                * { margin:0; padding:0; box-sizing:border-box; }
+                body { 
+                    font-family: Arial, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                }
+                .container {
+                    background: white;
+                    padding: 40px;
+                    border-radius: 20px;
+                    text-align: center;
+                    max-width: 400px;
+                    width: 90%;
+                }
+                h1 { 
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    margin-bottom: 10px;
+                }
+                input {
+                    width: 100%;
+                    padding: 12px;
+                    border: 2px solid #e0e0e0;
+                    border-radius: 10px;
+                    margin: 10px 0;
+                }
+                button {
+                    width: 100%;
+                    padding: 12px;
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    color: white;
+                    border: none;
+                    border-radius: 10px;
+                    font-size: 16px;
+                    cursor: pointer;
+                }
+                .error { color: red; margin-top: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🔐 All Tools AI</h1>
+                <p>Enter username to continue</p>
+                <input type="text" id="username" placeholder="Username">
+                <button onclick="login()">Login</button>
+                <div id="error" class="error"></div>
+            </div>
+            <script>
+                async function login() {
+                    const username = document.getElementById('username').value;
+                    if (!username) {
+                        document.getElementById('error').textContent = 'Please enter username';
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/api/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username })
+                        });
+                        const data = await res.json();
+                        if (data.status) {
+                            window.location.href = '/dashboard';
+                        } else {
+                            document.getElementById('error').textContent = data.message;
+                        }
+                    } catch(e) {
+                        document.getElementById('error').textContent = 'Connection error';
+                    }
+                }
+                document.getElementById('username').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') login();
+                });
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+// ============ DASHBOARD ============
+app.get('/dashboard', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Dashboard - All Tools AI</title>
+            <style>
+                * { margin:0; padding:0; box-sizing:border-box; }
+                body { 
+                    font-family: Arial, sans-serif;
+                    background: #f5f5f5;
+                    padding: 20px;
+                }
+                .header {
+                    background: white;
+                    padding: 20px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .header h1 { 
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                }
+                .logout-btn {
+                    padding: 8px 16px;
+                    background: #e74c3c;
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    cursor: pointer;
+                }
+                .tools-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                    gap: 20px;
+                }
+                .tool-card {
+                    background: white;
+                    padding: 20px;
+                    border-radius: 10px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    cursor: pointer;
+                    transition: transform 0.2s;
+                }
+                .tool-card:hover {
+                    transform: translateY(-5px);
+                }
+                .tool-card .name {
+                    font-size: 18px;
+                    font-weight: bold;
+                }
+                .tool-card .category {
+                    color: #666;
+                    font-size: 14px;
+                }
+                .tool-type {
+                    display: inline-block;
+                    padding: 2px 10px;
+                    border-radius: 10px;
+                    font-size: 12px;
+                    margin-top: 10px;
+                }
+                .tool-type.get { background: #d4edda; color: #155724; }
+                .tool-type.post { background: #cce5ff; color: #004085; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>✨ All Tools AI</h1>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+            <div id="tools" class="tools-grid">
+                <p>Loading tools...</p>
+            </div>
+            <script>
+                async function loadTools() {
+                    try {
+                        const res = await fetch('/api/tools');
+                        const data = await res.json();
+                        if (data.status) {
+                            const grid = document.getElementById('tools');
+                            grid.innerHTML = data.tools.map(tool => \`
+                                <div class="tool-card">
+                                    <div class="name">\${tool.name}</div>
+                                    <div class="category">\${tool.category}</div>
+                                    <span class="tool-type \${tool.type.toLowerCase()}">\${tool.type}</span>
+                                </div>
+                            \`).join('');
+                        }
+                    } catch(e) {
+                        document.getElementById('tools').innerHTML = '<p>Error loading tools</p>';
+                    }
+                }
+                function logout() {
+                    window.location.href = '/';
+                }
+                loadTools();
+            </script>
+        </body>
+        </html>
+    `);
 });
 
 // ============ BUAT LOCAL ============
