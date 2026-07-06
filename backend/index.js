@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -11,7 +12,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ============ DATA TOOLS (LANGSUNG DI SINI) ============
+// ============ SERVE FRONTEND ============
+app.use(express.static(path.join(__dirname, '../frontend')));
+
+// ============ DATA TOOLS ============
 let toolsData = {
     tools: [
         {
@@ -194,10 +198,17 @@ app.get('/api/search', (req, res) => {
     res.json({ status: true, tools: filtered });
 });
 
+// ============ FALLBACK (SEMUA ROUTE SELAIN /API) ============
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/index.html'));
+});
+
 // ============ BUAT LOCAL ============
 if (require.main === module) {
     app.listen(PORT, () => {
         console.log(`🚀 Server running on port ${PORT}`);
+        console.log(`🔑 API Key: ${process.env.API_KEY}`);
+        console.log(`🔗 Base URL: ${process.env.BASE_URL}`);
     });
 }
 
