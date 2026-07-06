@@ -1,41 +1,58 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const multer = require('multer');
-const FormData = require('form-data');
-const fs = require('fs');
-const path = require('path');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const TOOLS_DB = path.join(__dirname, 'tools.json');
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Multer
-const upload = multer({ 
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 }
-});
-
-// ============ TOOLS DATABASE ============
-function loadTools() {
-    try {
-        if (fs.existsSync(TOOLS_DB)) {
-            return JSON.parse(fs.readFileSync(TOOLS_DB, 'utf8'));
+// ============ DATA TOOLS (LANGSUNG DI SINI) ============
+let toolsData = {
+    tools: [
+        {
+            id: 1,
+            name: "Upscale Image",
+            category: "Image Tools",
+            type: "POST",
+            endpoint: "/imagecreator/upscale",
+            json: '{"url":"image_url"}',
+            query: "",
+            queryExample: ""
+        },
+        {
+            id: 2,
+            name: "Fake Dana",
+            category: "Fake Tools",
+            type: "GET",
+            endpoint: "/api/fakedanav2?amount={query}",
+            json: '{"status":false,"creator":"Dappa Official","error":"API key tidak valid"}',
+            query: "{query}",
+            queryExample: "9000"
+        },
+        {
+            id: 3,
+            name: "To Anime",
+            category: "Image Tools",
+            type: "POST",
+            endpoint: "/imagecreator/anime",
+            json: '{"url":"image_url"}',
+            query: "",
+            queryExample: ""
         }
-        return { tools: [] };
-    } catch {
-        return { tools: [] };
-    }
+    ]
+};
+
+function loadTools() {
+    return toolsData;
 }
 
 function saveTools(data) {
-    fs.writeFileSync(TOOLS_DB, JSON.stringify(data, null, 2));
+    toolsData = data;
 }
 
 // ============ AUTH ============
@@ -50,14 +67,13 @@ app.post('/api/login', (req, res) => {
     }
 });
 
-// ============ TOOLS MANAGEMENT ============
-// Get all tools
+// ============ GET TOOLS ============
 app.get('/api/tools', (req, res) => {
     const data = loadTools();
     res.json({ status: true, tools: data.tools });
 });
 
-// Add new tool
+// ============ ADD TOOL ============
 app.post('/api/tools', (req, res) => {
     const { name, category, type, endpoint, json, query, queryExample } = req.body;
     
@@ -72,10 +88,9 @@ app.post('/api/tools', (req, res) => {
         category,
         type: type.toUpperCase(),
         endpoint,
-        json: JSON.parse(json),
+        json: json,
         query: query || '',
-        queryExample: queryExample || '',
-        createdAt: new Date().toISOString()
+        queryExample: queryExample || ''
     };
 
     data.tools.push(newTool);
@@ -84,7 +99,7 @@ app.post('/api/tools', (req, res) => {
     res.json({ status: true, message: 'Tool added successfully', tool: newTool });
 });
 
-// Delete tool
+// ============ DELETE TOOL ============
 app.delete('/api/tools/:id', (req, res) => {
     const id = parseInt(req.params.id);
     const data = loadTools();
@@ -110,13 +125,11 @@ app.post('/api/execute', async (req, res) => {
         const fullUrl = `${BASE_URL}${tool.endpoint}`;
         let response;
 
-        // Replace query in URL if needed
         let finalUrl = fullUrl;
         if (tool.query && queryValue) {
             finalUrl = fullUrl.replace(tool.query, queryValue);
         }
 
-        // Execute based on method
         if (tool.type === 'GET') {
             response = await axios.get(finalUrl, {
                 params: { apikey: API_KEY },
@@ -133,7 +146,6 @@ app.post('/api/execute', async (req, res) => {
             });
         }
 
-        // Check if response has status
         const result = response.data;
         if (result.status === false) {
             return res.json({
@@ -165,7 +177,7 @@ app.get('/api/categories', (req, res) => {
     res.json({ status: true, categories });
 });
 
-// ============ SEARCH TOOLS ============
+// ============ SEARCH ============
 app.get('/api/search', (req, res) => {
     const { q } = req.query;
     const data = loadTools();
@@ -182,14 +194,12 @@ app.get('/api/search', (req, res) => {
     res.json({ status: true, tools: filtered });
 });
 
-// ============ RUN SERVER (BUAT LOKAL) ============
+// ============ BUAT LOCAL ============
 if (require.main === module) {
     app.listen(PORT, () => {
         console.log(`🚀 Server running on port ${PORT}`);
-        console.log(`🔑 API Key: ${process.env.API_KEY}`);
-        console.log(`🔗 Base URL: ${process.env.BASE_URL}`);
     });
 }
 
-// ============ EXPORT BUAT VERCEL ============
+// ============ BUAT VERCEL ============
 module.exports = app;
