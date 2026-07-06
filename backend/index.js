@@ -182,8 +182,14 @@ app.get('/api/search', (req, res) => {
     res.json({ status: true, tools: filtered });
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🔑 API Key: ${process.env.API_KEY}`);
-    console.log(`🔗 Base URL: ${process.env.BASE_URL}`);
-});
+// ============ RUN SERVER (BUAT LOKAL) ============
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`🚀 Server running on port ${PORT}`);
+        console.log(`🔑 API Key: ${process.env.API_KEY}`);
+        console.log(`🔗 Base URL: ${process.env.BASE_URL}`);
+    });
+}
+
+// ============ EXPORT BUAT VERCEL ============
+module.exports = app;
