@@ -21,6 +21,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ============ SERVE FRONTEND ============
+const frontendPath = path.join(__dirname, '..', 'frontend');
+app.use(express.static(frontendPath));
+
+// ============ UPLOAD ============
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 }
@@ -293,11 +298,9 @@ app.post('/api/execute', async (req, res) => {
     }
 });
 
-// ============ SERVE FRONTEND ============
-app.use(express.static(path.join(__dirname, '../frontend')));
-
+// ============ FALLBACK ============
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/index.html'));
+    res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
 });
 
 // ============ START ============
