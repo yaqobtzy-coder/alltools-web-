@@ -1,18 +1,114 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const multer = require('multer');
 const path = require('path');
+const FormData = require('form-data');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// ============ SUPABASE ============
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_KEY
+);
+
+// ============ MIDDLEWARE ============
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ============ DATA TOOLS ============
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+// ============ LIMIT SYSTEM ============
+const MAX_LIMIT = 10;
+
+async function getUserLimit(userId) {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        
+        let { data, error } = await supabase
+            .from('user_limits')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle();
+        
+        if (error || !data) {
+            const { data: newData, error: insertError } = await supabase
+                .from('user_limits')
+                .insert([{ user_id: userId, used: 0, reset_date: today }])
+                .select()
+                .single();
+            
+            if (insertError) {
+                console.error('Insert error:', insertError);
+                return { remaining: MAX_LIMIT, used: 0 };
+            }
+            return { remaining: MAX_LIMIT, used: 0 };
+        }
+        
+        if (data.reset_date !== today) {
+            await supabase
+                .from('user_limits')
+                .update({ used: 0, reset_date: today })
+                .eq('user_id', userId);
+            return { remaining: MAX_LIMIT, used: 0 };
+        }
+        
+        const used = data.used || 0;
+        return { remaining: Math.max(0, MAX_LIMIT - used), used: used };
+    } catch (error) {
+        console.error('Error getting limit:', error);
+        return { remaining: MAX_LIMIT, used: 0 };
+    }
+}
+
+async function useUserLimit(userId) {
+    try {
+        const limitData = await getUserLimit(userId);
+        if (limitData.remaining <= 0) {
+            return { success: false, message: 'Limit habis!' };
+        }
+        
+        const { error } = await supabase
+            .from('user_limits')
+            .update({ used: supabase.sql`used + 1` })
+            .eq('user_id', userId);
+        
+        if (error) {
+            console.error('Error using limit:', error);
+            return { success: false, message: 'Error updating limit' };
+        }
+        return { success: true, remaining: limitData.remaining - 1 };
+    } catch (error) {
+        console.error('Error using limit:', error);
+        return { success: false, message: 'Error' };
+    }
+}
+
+// ============ API ROUTES ============
+
+app.post('/api/limit', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.json({ status: false, message: 'User ID required' });
+    const data = await getUserLimit(userId);
+    res.json({ status: true, ...data, maxLimit: MAX_LIMIT });
+});
+
+app.post('/api/limit/use', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.json({ status: false, message: 'User ID required' });
+    const result = await useUserLimit(userId);
+    res.json({ status: result.success, ...result });
+});
+
+// ============ TOOLS DATA ============
 let toolsData = {
     tools: [
         {
@@ -48,40 +144,18 @@ let toolsData = {
     ]
 };
 
-function loadTools() {
-    return toolsData;
-}
+function loadTools() { return toolsData; }
+function saveTools(data) { toolsData = data; }
 
-function saveTools(data) {
-    toolsData = data;
-}
-
-// ============ AUTH ============
-const VALID_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-
-app.post('/api/login', (req, res) => {
-    const { username } = req.body;
-    if (username === VALID_USERNAME) {
-        res.json({ status: true, message: 'Login success' });
-    } else {
-        res.json({ status: false, message: 'Invalid username' });
-    }
-});
-
-// ============ GET TOOLS ============
 app.get('/api/tools', (req, res) => {
-    const data = loadTools();
-    res.json({ status: true, tools: data.tools });
+    res.json({ status: true, tools: loadTools().tools });
 });
 
-// ============ ADD TOOL ============
 app.post('/api/tools', (req, res) => {
     const { name, category, type, endpoint, json, query, queryExample } = req.body;
-    
     if (!name || !category || !type || !endpoint || !json) {
         return res.json({ status: false, message: 'All fields required' });
     }
-
     const data = loadTools();
     const newTool = {
         id: Date.now(),
@@ -93,14 +167,11 @@ app.post('/api/tools', (req, res) => {
         query: query || '',
         queryExample: queryExample || ''
     };
-
     data.tools.push(newTool);
     saveTools(data);
-
     res.json({ status: true, message: 'Tool added successfully', tool: newTool });
 });
 
-// ============ DELETE TOOL ============
 app.delete('/api/tools/:id', (req, res) => {
     const id = parseInt(req.params.id);
     const data = loadTools();
@@ -109,28 +180,89 @@ app.delete('/api/tools/:id', (req, res) => {
     res.json({ status: true, message: 'Tool deleted' });
 });
 
+// ============ UPLOAD & PROCESS IMAGE ============
+const API_KEY = process.env.API_KEY || 'f75uul5u';
+const BASE_URL = process.env.BASE_URL || 'https://dappaofficial-restapi.my.id';
+
+async function uploadToCDN(buffer, mimeType) {
+    try {
+        const formData = new FormData();
+        formData.append('image', buffer, {
+            filename: `image_${Date.now()}.jpg`,
+            contentType: mimeType
+        });
+        const response = await axios.post('https://api.imgbb.com/1/upload', formData, {
+            params: { key: process.env.IMGBB_API_KEY || 'a60507c67d4d1a5d3f6b0cecbb168314' },
+            headers: formData.getHeaders(),
+            timeout: 30000
+        });
+        return response.data?.data?.url || null;
+    } catch (error) {
+        console.error('CDN Upload error:', error);
+        return null;
+    }
+}
+
+app.post('/api/upload', upload.single('image'), async (req, res) => {
+    try {
+        const { userId, toolId } = req.body;
+        if (!userId) return res.status(400).json({ status: false, message: 'User ID required' });
+        
+        const limitData = await getUserLimit(userId);
+        if (limitData.remaining <= 0) {
+            return res.status(429).json({ status: false, message: 'Limit habis! Tunggu reset jam 00.00' });
+        }
+        
+        if (!req.file) return res.status(400).json({ status: false, message: 'No image uploaded' });
+
+        const imageUrl = await uploadToCDN(req.file.buffer, req.file.mimetype);
+        if (!imageUrl) return res.status(500).json({ status: false, message: 'Failed to upload image' });
+
+        const apiUrl = `${BASE_URL}/imagecreator/upscale`;
+        const response = await axios.post(apiUrl, {
+            apikey: API_KEY,
+            url: imageUrl
+        }, {
+            timeout: 180000,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.data?.status || !response.data?.result) {
+            return res.status(500).json({ status: false, message: 'API processing failed', error: response.data });
+        }
+
+        const imageResponse = await axios.get(response.data.result, { responseType: 'arraybuffer' });
+        await useUserLimit(userId);
+
+        res.set('Content-Type', 'image/jpeg');
+        res.send(Buffer.from(imageResponse.data));
+
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ status: false, message: error.response?.data?.error || error.message || 'Internal server error' });
+    }
+});
+
 // ============ EXECUTE TOOL ============
 app.post('/api/execute', async (req, res) => {
-    const { toolId, queryValue } = req.body;
+    const { toolId, queryValue, userId } = req.body;
+    if (!userId) return res.json({ status: false, message: 'User ID required' });
+    
+    const limitData = await getUserLimit(userId);
+    if (limitData.remaining <= 0) {
+        return res.json({ status: false, message: 'Limit habis! Tunggu reset jam 00.00' });
+    }
     
     const data = loadTools();
     const tool = data.tools.find(t => t.id === toolId);
-    
-    if (!tool) {
-        return res.json({ status: false, message: 'Tool not found' });
-    }
+    if (!tool) return res.json({ status: false, message: 'Tool not found' });
 
     try {
-        const API_KEY = process.env.API_KEY;
-        const BASE_URL = process.env.BASE_URL;
         const fullUrl = `${BASE_URL}${tool.endpoint}`;
-        let response;
-
         let finalUrl = fullUrl;
-        if (tool.query && queryValue) {
-            finalUrl = fullUrl.replace(tool.query, queryValue);
-        }
+        if (tool.query && queryValue) finalUrl = fullUrl.replace(tool.query, queryValue);
 
+        let response;
         if (tool.type === 'GET') {
             response = await axios.get(finalUrl, {
                 params: { apikey: API_KEY },
@@ -149,259 +281,33 @@ app.post('/api/execute', async (req, res) => {
 
         const result = response.data;
         if (result.status === false) {
-            return res.json({
-                status: false,
-                message: result.error || result.message || 'API Error',
-                error: result
-            });
+            return res.json({ status: false, message: result.error || result.message || 'API Error', error: result });
         }
 
-        res.json({
-            status: true,
-            data: result,
-            tool: tool.name
-        });
+        await useUserLimit(userId);
+        res.json({ status: true, data: result, tool: tool.name });
 
     } catch (error) {
         console.error('Execute error:', error);
-        res.json({
-            status: false,
-            message: error.response?.data?.error || error.message || 'Execution failed'
-        });
+        res.json({ status: false, message: error.response?.data?.error || error.message || 'Execution failed' });
     }
 });
 
-// ============ CATEGORIES ============
-app.get('/api/categories', (req, res) => {
-    const data = loadTools();
-    const categories = [...new Set(data.tools.map(t => t.category))];
-    res.json({ status: true, categories });
+// ============ SERVE FRONTEND ============
+app.use(express.static(path.join(__dirname, '../frontend')));
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
 
-// ============ SEARCH ============
-app.get('/api/search', (req, res) => {
-    const { q } = req.query;
-    const data = loadTools();
-    
-    if (!q) {
-        return res.json({ status: true, tools: data.tools });
-    }
-
-    const filtered = data.tools.filter(t => 
-        t.name.toLowerCase().includes(q.toLowerCase()) ||
-        t.category.toLowerCase().includes(q.toLowerCase())
-    );
-    
-    res.json({ status: true, tools: filtered });
-});
-
-// ============ SERVE HTML ============
-app.get('/', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>All Tools AI</title>
-            <style>
-                * { margin:0; padding:0; box-sizing:border-box; }
-                body { 
-                    font-family: Arial, sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                }
-                .container {
-                    background: white;
-                    padding: 40px;
-                    border-radius: 20px;
-                    text-align: center;
-                    max-width: 400px;
-                    width: 90%;
-                }
-                h1 { 
-                    background: linear-gradient(135deg, #667eea, #764ba2);
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                    margin-bottom: 10px;
-                }
-                input {
-                    width: 100%;
-                    padding: 12px;
-                    border: 2px solid #e0e0e0;
-                    border-radius: 10px;
-                    margin: 10px 0;
-                }
-                button {
-                    width: 100%;
-                    padding: 12px;
-                    background: linear-gradient(135deg, #667eea, #764ba2);
-                    color: white;
-                    border: none;
-                    border-radius: 10px;
-                    font-size: 16px;
-                    cursor: pointer;
-                }
-                .error { color: red; margin-top: 10px; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🔐 All Tools AI</h1>
-                <p>Enter username to continue</p>
-                <input type="text" id="username" placeholder="Username">
-                <button onclick="login()">Login</button>
-                <div id="error" class="error"></div>
-            </div>
-            <script>
-                async function login() {
-                    const username = document.getElementById('username').value;
-                    if (!username) {
-                        document.getElementById('error').textContent = 'Please enter username';
-                        return;
-                    }
-                    try {
-                        const res = await fetch('/api/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username })
-                        });
-                        const data = await res.json();
-                        if (data.status) {
-                            window.location.href = '/dashboard';
-                        } else {
-                            document.getElementById('error').textContent = data.message;
-                        }
-                    } catch(e) {
-                        document.getElementById('error').textContent = 'Connection error';
-                    }
-                }
-                document.getElementById('username').addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') login();
-                });
-            </script>
-        </body>
-        </html>
-    `);
-});
-
-// ============ DASHBOARD ============
-app.get('/dashboard', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Dashboard - All Tools AI</title>
-            <style>
-                * { margin:0; padding:0; box-sizing:border-box; }
-                body { 
-                    font-family: Arial, sans-serif;
-                    background: #f5f5f5;
-                    padding: 20px;
-                }
-                .header {
-                    background: white;
-                    padding: 20px;
-                    border-radius: 10px;
-                    margin-bottom: 20px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }
-                .header h1 { 
-                    background: linear-gradient(135deg, #667eea, #764ba2);
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                }
-                .logout-btn {
-                    padding: 8px 16px;
-                    background: #e74c3c;
-                    color: white;
-                    border: none;
-                    border-radius: 8px;
-                    cursor: pointer;
-                }
-                .tools-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-                    gap: 20px;
-                }
-                .tool-card {
-                    background: white;
-                    padding: 20px;
-                    border-radius: 10px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                    cursor: pointer;
-                    transition: transform 0.2s;
-                }
-                .tool-card:hover {
-                    transform: translateY(-5px);
-                }
-                .tool-card .name {
-                    font-size: 18px;
-                    font-weight: bold;
-                }
-                .tool-card .category {
-                    color: #666;
-                    font-size: 14px;
-                }
-                .tool-type {
-                    display: inline-block;
-                    padding: 2px 10px;
-                    border-radius: 10px;
-                    font-size: 12px;
-                    margin-top: 10px;
-                }
-                .tool-type.get { background: #d4edda; color: #155724; }
-                .tool-type.post { background: #cce5ff; color: #004085; }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>✨ All Tools AI</h1>
-                <button class="logout-btn" onclick="logout()">Logout</button>
-            </div>
-            <div id="tools" class="tools-grid">
-                <p>Loading tools...</p>
-            </div>
-            <script>
-                async function loadTools() {
-                    try {
-                        const res = await fetch('/api/tools');
-                        const data = await res.json();
-                        if (data.status) {
-                            const grid = document.getElementById('tools');
-                            grid.innerHTML = data.tools.map(tool => \`
-                                <div class="tool-card">
-                                    <div class="name">\${tool.name}</div>
-                                    <div class="category">\${tool.category}</div>
-                                    <span class="tool-type \${tool.type.toLowerCase()}">\${tool.type}</span>
-                                </div>
-                            \`).join('');
-                        }
-                    } catch(e) {
-                        document.getElementById('tools').innerHTML = '<p>Error loading tools</p>';
-                    }
-                }
-                function logout() {
-                    window.location.href = '/';
-                }
-                loadTools();
-            </script>
-        </body>
-        </html>
-    `);
-});
-
-// ============ BUAT LOCAL ============
+// ============ START ============
 if (require.main === module) {
     app.listen(PORT, () => {
         console.log(`🚀 Server running on port ${PORT}`);
-        console.log(`🔑 API Key: ${process.env.API_KEY}`);
-        console.log(`🔗 Base URL: ${process.env.BASE_URL}`);
+        console.log(`🔑 API Key: ${API_KEY}`);
+        console.log(`🔗 Base URL: ${BASE_URL}`);
+        console.log(`📊 Supabase connected`);
     });
 }
 
-// ============ BUAT VERCEL ============
 module.exports = app;
